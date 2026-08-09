@@ -25,6 +25,8 @@ export type MissionState = {
   savings: number | null;
   heroMetric: string;
   connected: boolean;
+  test: boolean;
+  testRedirect: string | null;
 };
 
 const EMPTY: MissionState = {
@@ -38,6 +40,8 @@ const EMPTY: MissionState = {
   savings: null,
   heroMetric: "price",
   connected: false,
+  test: false,
+  testRedirect: null,
 };
 
 export function useMissionStream(missionId: string | null, heroMetric: string, counterparties: Counterparty[]) {
@@ -55,6 +59,7 @@ export function useMissionStream(missionId: string | null, heroMetric: string, c
         facts: {},
         value: null,
         first: null,
+        turns: [],
         lastText: "",
         lastRole: "us",
         lang: cp.lang_hint,
@@ -89,6 +94,8 @@ export function useMissionStream(missionId: string | null, heroMetric: string, c
 }
 
 function reduce(prev: MissionState, e: MissionEvent, id: number): MissionState {
+  let test = prev.test;
+  let testRedirect = prev.testRedirect;
   const lines = new Map(prev.lines);
   const order = [...prev.order];
   let tape = prev.tape;
@@ -110,6 +117,10 @@ function reduce(prev: MissionState, e: MissionEvent, id: number): MissionState {
 
   switch (e.type) {
     case "mission.start": {
+      if (e.test) {
+        test = true;
+        testRedirect = (e.test_redirect as string) ?? null;
+      }
       const cps = (e.counterparties as Counterparty[]) ?? [];
       for (const cp of cps) {
         if (!lines.has(cp.id)) {
@@ -119,6 +130,7 @@ function reduce(prev: MissionState, e: MissionEvent, id: number): MissionState {
             facts: {},
             value: null,
             first: null,
+            turns: [],
             lastText: "",
             lastRole: "us",
             lang: cp.lang_hint,
@@ -135,9 +147,21 @@ function reduce(prev: MissionState, e: MissionEvent, id: number): MissionState {
     case "turn": {
       const line = touch(cpId);
       if (line) {
-        line.lastText = String(e.text ?? "");
-        line.lastRole = e.role === "them" ? "them" : "us";
+        const role = e.role === "them" ? "them" : "us";
+        const text = String(e.text ?? "");
+        line.lastText = text;
+        line.lastRole = role;
         if (e.lang) line.lang = String(e.lang);
+        line.turns = [
+          ...line.turns,
+          {
+            at: Number(e.at ?? Date.now()),
+            role,
+            text,
+            lang: e.lang ? String(e.lang) : undefined,
+            latency_ms: typeof e.latency_ms === "number" ? e.latency_ms : undefined,
+          },
+        ];
       }
       break;
     }
@@ -225,7 +249,7 @@ function reduce(prev: MissionState, e: MissionEvent, id: number): MissionState {
     }
   }
 
-  return { ...prev, lines, order, tape, arcs, best, firstMax, ended, savings };
+  return { ...prev, lines, order, tape, arcs, best, firstMax, ended, savings, test, testRedirect };
 }
 
 function fmt(n: number): string {

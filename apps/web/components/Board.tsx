@@ -57,6 +57,16 @@ export function Board({
         </span>
       </div>
 
+      {s.test ? (
+        <div className="test-banner">
+          <b>TEST RUN</b>
+          <span>
+            Every call rings {s.testRedirect ?? "the test number"}, one at a time. No shop on this list is
+            being dialled, and nothing here counts toward the public savings total.
+          </span>
+        </div>
+      ) : null}
+
       <Tape items={s.tape} />
 
       <div className="theater">
@@ -155,6 +165,7 @@ function Lines({
   const wrap = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const [paths, setPaths] = useState<{ id: number; d: string; label: string; x: number; y: number }[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useLayoutEffect(() => {
     const container = wrap.current;
@@ -206,40 +217,116 @@ function Lines({
         </svg>
       ) : null}
 
-      {lines.map((line, i) => (
-        <div
-          key={line.cp.id}
-          className="line-card"
-          data-live={!line.ended}
-          data-dead={line.dead}
-          ref={(el) => {
-            if (el) rowRefs.current.set(line.cp.id, el);
-          }}
-        >
-          <span className="line-no">{String(i + 1).padStart(2, "0")}</span>
+      {lines.map((line, i) => {
+        // With one line on the board there is nothing to choose between - show it.
+        const open = expanded[line.cp.id] ?? lines.length === 1;
+        const showConvo = open && line.turns.length > 0;
 
-          <div style={{ minWidth: 0 }}>
-            <div className="line-name">
-              {line.cp.name}
-              {line.lang ? <span className="lang-tag">{line.lang.replace("-IN", "")}</span> : null}
-            </div>
-            <div className="line-say" data-role={line.lastRole}>
-              {line.lastText || (line.ended ? "line closed" : "dialling…")}
-            </div>
-          </div>
+        return (
+          <div
+            key={line.cp.id}
+            className={`line-card${showConvo ? " has-convo" : ""}`}
+            data-live={!line.ended}
+            data-dead={line.dead}
+            ref={(el) => {
+              if (el) rowRefs.current.set(line.cp.id, el);
+            }}
+          >
+            <span className="line-no">{String(i + 1).padStart(2, "0")}</span>
 
-          <div className="line-right">
-            <span className="line-value" data-moved={line.value !== null} key={line.value ?? "none"}>
-              {line.value === null ? "—" : rupees(line.value)}
-            </span>
-            <span className="line-state" data-state={line.state}>
-              {line.outcome ?? line.state}
-            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="line-name">
+                {line.cp.name}
+                {line.lang ? <span className="lang-tag">{line.lang.replace("-IN", "")}</span> : null}
+                {line.turns.length > 1 ? (
+                  <button
+                    className="convo-toggle"
+                    onClick={() => setExpanded((s) => ({ ...s, [line.cp.id]: !open }))}
+                    aria-expanded={open}
+                  >
+                    {open ? "hide" : `${line.turns.length} turns`}
+                  </button>
+                ) : null}
+              </div>
+              {!showConvo ? (
+                <div className="line-say" data-role={line.lastRole}>
+                  {line.lastText || (line.ended ? "line closed" : "dialling…")}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="line-right">
+              <span className="line-value" data-moved={line.value !== null} key={line.value ?? "none"}>
+                {line.value === null ? "—" : rupees(line.value)}
+              </span>
+              <span className="line-state" data-state={line.state}>
+                {line.outcome ?? line.state}
+              </span>
+            </div>
+
+            {showConvo ? <Conversation line={line} /> : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+/* ----------------------------------------------------------- the conversation */
+
+/**
+ * The running call, newest at the bottom, pinned to the latest line as it arrives.
+ * Auto-scroll only follows when the reader is already at the bottom - scrolling up
+ * to re-read something the shopkeeper said should not be yanked away mid-sentence.
+ */
+function Conversation({ line }: { line: Line }) {
+  const box = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+
+  useEffect(() => {
+    const el = box.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [line.turns.length]);
+
+  const waiting = !line.ended && line.lastRole === "them";
+
+  return (
+    <div
+      className="convo"
+      ref={box}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }}
+    >
+      {line.turns.map((t, i) => (
+        <div className="utterance" data-role={t.role} key={`${t.at}-${i}`}>
+          <span className="utterance-who">{t.role === "us" ? "MolBhav" : firstWord(line.cp.name)}</span>
+          <span className="utterance-text">
+            {t.text}
+            {t.latency_ms ? <span className="utterance-meta">{(t.latency_ms / 1000).toFixed(1)}s</span> : null}
+          </span>
+        </div>
+      ))}
+
+      {waiting ? (
+        <div className="convo-live">
+          <span className="utterance-who" style={{ color: "var(--brass)" }}>
+            MolBhav
+          </span>
+          <span className="convo-dots" aria-label="thinking">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function firstWord(name: string): string {
+  return name.split(/\s+/)[0].slice(0, 9);
 }
 
 /* ------------------------------------------------------------- the fact grid */

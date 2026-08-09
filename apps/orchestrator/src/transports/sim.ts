@@ -36,6 +36,7 @@ export class SimTransport implements Transport {
   private history: { role: "system" | "user" | "assistant"; content: string }[] = [];
   private turns = 0;
   private dead = false;
+  private consecutiveFailures = 0;
 
   constructor(private opts: SimOptions) {
     this.id = opts.callId;
@@ -88,17 +89,10 @@ export class SimTransport implements Transport {
         temperature: 0.9,
         maxTokens: 160,
         label: `sim/${this.opts.persona}`,
-        jsonSchema: {
+        json: {
           name: "sim_reply",
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            required: ["say", "hangup"],
-            properties: {
-              say: { type: "string" },
-              hangup: { type: "boolean" },
-            },
-          },
+          shape: '{\n  "say": "string, at most 25 words, in character",\n  "hangup": true|false\n}',
+          primaryKey: "say",
         },
       });
 
@@ -114,9 +108,21 @@ export class SimTransport implements Transport {
         setTimeout(() => this.end("hangup"), 50);
       }
     } catch (err) {
-      log.call(this.id, `sim reply failed: ${err instanceof Error ? err.message : err}`);
-      this.end("failed");
+      // One bad generation is not a hangup. Stay in character, keep the line open,
+      // and only give up if the counterparty goes silent twice running.
+      this.consecutiveFailures += 1;
+      log.call(
+        this.id,
+        `sim reply failed (${this.consecutiveFailures}): ${err instanceof Error ? err.message : err}`
+      );
+      if (this.consecutiveFailures >= 2) {
+        this.end("failed");
+        return;
+      }
+      this.utteranceCb?.("Haan ji, boliye.", this.opts.lang);
+      return;
     }
+    this.consecutiveFailures = 0;
   }
 
   async hangup(): Promise<void> {

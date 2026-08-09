@@ -9,7 +9,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "eval": "tsx src/eval/run.ts",
-    "skills:check": "tsx src/skills/check.ts"
+    "skills:check": "tsx src/skills/check.ts",
+    "twilio:check": "tsx src/twilio-check.ts",
+    "policy:check": "tsx src/policy.check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

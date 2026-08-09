@@ -18,10 +18,13 @@ export default function Home() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testMode, setTestMode] = useState(true);
+  const [config, setConfig] = useState<{ test_number: string | null; twilio: boolean } | null>(null);
   const [pending, setPending] = useState<{ skill_id: string; options: { id: string; label: string; emoji: string }[]; spec: Record<string, string | number>; phones: string[] } | null>(null);
 
   useEffect(() => {
     api.skills().then((r) => setSkills(r.skills)).catch((e) => setError(String(e.message)));
+    api.health().then((h) => setConfig({ test_number: h.test_number, twilio: h.twilio })).catch(() => undefined);
   }, []);
 
   async function submit(overrideSkill?: string) {
@@ -43,6 +46,7 @@ export default function Home() {
         skill_id: skillId,
         spec: fillDefaults(parsed.spec, skills.find((s) => s.id === skillId)),
         phones: parsed.phones,
+        test: testMode,
       });
       router.push(`/mission/${started.mission_id}`);
     } catch (e) {
@@ -119,6 +123,33 @@ export default function Home() {
                 ))}
               </div>
             )}
+
+            {config?.twilio ? (
+              <div className="mode-row">
+                <label className="toggle" data-on={testMode}>
+                  <input
+                    type="checkbox"
+                    checked={testMode}
+                    onChange={(e) => setTestMode(e.target.checked)}
+                  />
+                  <span className="toggle-led" />
+                  Test mode
+                </label>
+                <span className="mode-note">
+                  {testMode ? (
+                    config.test_number ? (
+                      <>
+                        rings <b>{config.test_number}</b> instead of the shops, one call at a time
+                      </>
+                    ) : (
+                      <>no test number set - add TEST_CALL_REDIRECT to .env</>
+                    )
+                  ) : (
+                    <>calls real shops on the list</>
+                  )}
+                </span>
+              </div>
+            ) : null}
 
             {error ? <div className="error">{error}</div> : null}
           </div>

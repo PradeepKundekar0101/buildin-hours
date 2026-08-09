@@ -16,7 +16,16 @@ import { log } from "../log.js";
 export const api = Router();
 
 api.get("/health", (_req, res) => {
-  res.json({ ok: true, skills: skills.all().length, config: bootReport(), turn_p95_ms: latencyP95() });
+  res.json({
+    ok: true,
+    skills: skills.all().length,
+    config: bootReport(),
+    turn_p95_ms: latencyP95(),
+    twilio: has.twilio(),
+    // The composer needs to show which number a test run would actually ring.
+    test_number: env.testCallRedirect || null,
+    test_default: env.testModeDefault,
+  });
 });
 
 /** Everything the web app needs to render any market without per-market code. */
@@ -69,24 +78,16 @@ api.post("/compose", async (req, res) => {
         { role: "system", content: classifierPrompt(skills.catalog()) },
         { role: "user", content: text },
       ],
-      jsonSchema: {
+      json: {
         name: "mission_classification",
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["skill_id", "confidence", "spec", "pasted"],
-          properties: {
-            skill_id: { type: "string" },
-            confidence: { type: "number" },
-            spec: { type: "object", additionalProperties: true },
-            pasted: {
-              type: "object",
-              additionalProperties: false,
-              required: ["phones"],
-              properties: { phones: { type: "array", items: { type: "string" } } },
-            },
-          },
-        },
+        primaryKey: "skill_id",
+        shape:
+          "{\n" +
+          `  "skill_id": "one of: ${skills.all().map((s) => s.id).join(" | ")} | ask",\n` +
+          '  "confidence": 0.0 to 1.0,\n' +
+          '  "spec": { "<mission_field key>": "value" },\n' +
+          '  "pasted": { "phones": ["+91XXXXXXXXXX"] }\n' +
+          "}",
       },
     });
 
@@ -128,7 +129,20 @@ api.post("/missions", async (req, res) => {
 
   const mode: "pstn" | "sim" = req.body?.mode === "sim" ? "sim" : has.twilio() ? "pstn" : "sim";
 
-  if (mode === "pstn" && !withinCallWindow()) {
+  // Test mode: real telephony, redirected to one number you answer yourself.
+  const wantsTest = req.body?.test === undefined ? env.testModeDefault : Boolean(req.body.test);
+  const redirect = String(req.body?.test_number ?? env.testCallRedirect ?? "").trim();
+  if (wantsTest && mode === "pstn" && !/^\+[1-9]\d{7,14}$/.test(redirect)) {
+    return res.status(400).json({
+      error: redirect
+        ? `test_number "${redirect}" is not E.164 (expected +919876543210)`
+        : "test mode needs a number to ring - set TEST_CALL_REDIRECT or pass test_number",
+    });
+  }
+  const testRedirect = wantsTest && mode === "pstn" ? redirect : undefined;
+
+  // A redirected call never reaches a shop, so the calling window does not apply.
+  if (mode === "pstn" && !testRedirect && !withinCallWindow()) {
     return res.status(409).json({ error: callWindowMessage() });
   }
 
@@ -151,6 +165,16 @@ api.post("/missions", async (req, res) => {
     return res.status(404).json({ error: "no counterparties found - paste some numbers or add a seed CSV row" });
   }
 
+  // In test mode every call rings the same phone, so ringing the whole roster just
+  // means answering the same conversation five times over.
+  if (testRedirect) {
+    const wanted = Math.max(1, Number(req.body?.test_calls ?? env.testCallCount));
+    if (counterparties.length > wanted) {
+      log.info(`test mode: ringing ${wanted} of ${counterparties.length} counterparties`);
+      counterparties = counterparties.slice(0, wanted);
+    }
+  }
+
   const run = await startMission({
     pack,
     spec: req.body.spec,
@@ -159,13 +183,20 @@ api.post("/missions", async (req, res) => {
     userPhone: req.body?.user_phone,
     firstName: req.body?.first_name,
     mode,
+    testRedirect,
   });
 
   res.json({
     mission_id: run.mission.id,
     skill: { id: pack.id, label: pack.label, emoji: pack.emoji, ui: pack.ui, columns: tableColumns(pack) },
     mode,
-    counterparties,
+    test: Boolean(testRedirect),
+    // Echoed back so it is impossible to run a test thinking it was real, or the reverse.
+    test_redirect: testRedirect ?? null,
+    counterparties: counterparties.map((c) => ({
+      ...c,
+      dialing: testRedirect ?? c.phone,
+    })),
   });
 });
 

@@ -57,8 +57,11 @@ export async function startMission(args: {
   firstName?: string;
   /** Force the simulator even when Twilio is configured (rehearsal, evals, fallback). */
   mode?: "pstn" | "sim";
+  /** Test mode: real telephony, but every call rings this number instead of the shop. */
+  testRedirect?: string;
 }): Promise<MissionRun> {
   const { pack } = args;
+  const testRedirect = args.testRedirect?.trim() || undefined;
 
   const mission: Mission = {
     id: randomUUID(),
@@ -68,6 +71,7 @@ export async function startMission(args: {
     spec: args.spec,
     created_at: Date.now(),
     status: "running",
+    test: Boolean(testRedirect),
   };
 
   const useSim = args.mode === "sim" || (!has.twilio() && args.mode !== "pstn");
@@ -76,10 +80,20 @@ export async function startMission(args: {
   const sessions: CallSession[] = [];
 
   log.info(
-    `mission ${mission.id.slice(0, 8)} · ${pack.emoji} ${pack.id} · ${args.counterparties.length} counterparties · ${useSim ? "SIM" : "PSTN"}`
+    `mission ${mission.id.slice(0, 8)} · ${pack.emoji} ${pack.id} · ${args.counterparties.length} counterparties · ${useSim ? "SIM" : "PSTN"}` +
+      (testRedirect ? ` · TEST MODE -> every call rings ${testRedirect}, no shop is dialled` : "")
   );
 
-  events.emit(mission.id, { type: "mission.start", skill: pack.id, mission_id: mission.id, spec: args.spec, ui: pack.ui, counterparties: args.counterparties });
+  events.emit(mission.id, {
+    type: "mission.start",
+    skill: pack.id,
+    mission_id: mission.id,
+    spec: args.spec,
+    ui: pack.ui,
+    counterparties: args.counterparties,
+    test: mission.test,
+    test_redirect: testRedirect ?? null,
+  });
   void persist.mission(mission);
 
   // Relay bus activity straight to the theater: this is the arbitrage beat on screen.
@@ -115,7 +129,7 @@ export async function startMission(args: {
         replyDelayMs: 250,
       });
     } else {
-      const t = new TwilioTransport({ pack, counterparty: cp, callId, openingLang });
+      const t = new TwilioTransport({ pack, counterparty: cp, callId, openingLang, dialOverride: testRedirect });
       liveTwilioTransports.set(callId, t);
       transport = t;
     }
@@ -166,8 +180,12 @@ export async function startMission(args: {
     }
   };
 
+  // One human cannot answer six phones. In test mode the calls queue up and ring
+  // one at a time, so the whole roster is still exercised.
+  const parallel = testRedirect ? 1 : env.maxParallelCalls;
+
   const done = (async (): Promise<MissionSummary> => {
-    await pool(args.counterparties, env.maxParallelCalls, runOne);
+    await pool(args.counterparties, parallel, runOne);
     mission.status = "done";
 
     const summary = summarise(pack, mission, bus, [...calls.values()]);

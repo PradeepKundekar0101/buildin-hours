@@ -66,6 +66,7 @@ async function runPersona(pack: SkillPack, persona: string, seed: number): Promi
     spec,
     created_at: Date.now(),
     status: "running",
+    test: true,
   };
 
   const bus = new FactBus(pack, mission.id);

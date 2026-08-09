@@ -45,7 +45,7 @@
     "alt_inventory": true
   },
   "policies": {
-    "call_cap_s": 170,
+    "call_cap_s": 240,
     "extra_rules": [
       "respect the craft - negotiate scope and timeline before price",
       "never disparage their rates or compare them unfavourably by name"

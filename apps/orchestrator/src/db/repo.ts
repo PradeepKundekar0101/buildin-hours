@@ -34,6 +34,7 @@ export const persist = {
         user_id: m.user_id,
         spec: m.spec,
         status: m.status,
+        test: m.test,
         created_at: new Date(m.created_at).toISOString(),
       });
       if (error) throw new Error(error.message);
@@ -98,27 +99,33 @@ export async function publicStats(): Promise<{
   dead_leads: number;
   by_skill: Record<string, { missions: number; saved: number }>;
 }> {
+  // Rehearsals must never inflate the number on the wall. A test mission is a call
+  // to ourselves; counting its "savings" would be inventing traction.
+  const realMissionIds = new Set(memory.missions.filter((m) => !m.test).map((m) => m.id));
+
   const client = sb();
   if (!client) {
+    const real = memory.missions.filter((m) => !m.test);
+    const realSummaries = memory.summaries.filter((s) => realMissionIds.has(s.mission_id));
     const by_skill: Record<string, { missions: number; saved: number }> = {};
-    for (const s of memory.summaries) {
+    for (const s of realSummaries) {
       const e = (by_skill[s.skill_id] ??= { missions: 0, saved: 0 });
       e.missions += 1;
       e.saved += s.savings ?? 0;
     }
     return {
-      users: new Set(memory.missions.map((m) => m.user_id)).size,
-      missions: memory.missions.length,
-      calls: memory.calls.length,
-      saved: memory.summaries.reduce((a, s) => a + (s.savings ?? 0), 0),
-      dead_leads: memory.calls.filter((c) => c.outcome === "dead_lead").length,
+      users: new Set(real.map((m) => m.user_id)).size,
+      missions: real.length,
+      calls: memory.calls.filter((c) => realMissionIds.has(c.mission_id)).length,
+      saved: realSummaries.reduce((a, s) => a + (s.savings ?? 0), 0),
+      dead_leads: memory.calls.filter((c) => realMissionIds.has(c.mission_id) && c.outcome === "dead_lead").length,
       by_skill,
     };
   }
 
   const [missions, calls] = await Promise.all([
-    client.from("missions").select("skill_id,user_id,savings"),
-    client.from("calls").select("outcome"),
+    client.from("missions").select("skill_id,user_id,savings").not("test", "is", true),
+    client.from("calls").select("outcome,missions!inner(test)").not("missions.test", "is", true),
   ]);
 
   const rows = (missions.data ?? []) as { skill_id: string; user_id: string; savings: number | null }[];
@@ -151,8 +158,9 @@ export async function bhavIndex(skillId?: string): Promise<
   if (client) {
     const { data } = await client
       .from("calls")
-      .select("final_quote,area,mission_id,missions(skill_id,spec)")
-      .not("final_quote", "is", null);
+      .select("final_quote,area,mission_id,missions!inner(skill_id,spec,test)")
+      .not("final_quote", "is", null)
+      .not("missions.test", "is", true);
     for (const r of (data ?? []) as never[]) {
       const row = r as { final_quote: number; area?: string; missions?: { skill_id: string; spec: Record<string, unknown> } };
       if (!row.missions) continue;
@@ -160,7 +168,7 @@ export async function bhavIndex(skillId?: string): Promise<
       rows.push({ skill_id: row.missions.skill_id, group: label, value: row.final_quote });
     }
   } else {
-    for (const s of memory.summaries) {
+    for (const s of memory.summaries.filter((s) => !memory.missions.find((m) => m.id === s.mission_id)?.test)) {
       for (const c of s.calls) {
         if (typeof c.final_quote === "number") {
           rows.push({ skill_id: s.skill_id, group: c.counterparty.area ?? "all", value: c.final_quote });

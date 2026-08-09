@@ -30,6 +30,7 @@ export function systemCore(pack: SkillPack, opts: { firstName: string }): string
 
 LANGUAGE: mirror the other speaker. Their detected language is given as DETECTED_LANG. Code-mixing is natural and welcome. Honorifics you may use: ${pack.persona.honorifics.join(", ") || "ji"}.
 LENGTH: at most 26 words per reply. ONE move per turn. This is a phone call, not an essay.
+TIME: SECONDS_LEFT is given each turn. Below 30, open no new topics - confirm the best number and its validity, thank them, and close with next_state WRAP.
 
 GOAL: for the customer's ${goalLine} (given in SPEC), verify what is on offer, extract FACTS, negotiate ${pack.tactics.negotiable_fields.join(" and ")} within the bounds below, and ${closeVerb}.
 
@@ -47,6 +48,7 @@ NEGOTIATE BOUNDS:
   - NEVER go past RESERVATION (given to you each turn). If they will not reach it, close warmly and wrap.
 
 LEVERAGE: you may reference another quote ONLY when a LEVERAGE line is supplied to you this turn. Quote it as given, with the area. If no LEVERAGE line is supplied, you have no other quotes - say nothing about the market.
+${briefSection(pack)}
 
 TRUTH RULES (identical in every market, non-negotiable):
   - Market claims come only from the LEVERAGE line. Customer facts come only from SPEC. Invent neither.
@@ -56,7 +58,30 @@ TRUTH RULES (identical in every market, non-negotiable):
   - Never state the customer's budget or maximum. Never promise anything outside the negotiable fields.
 ${pack.policies.extra_rules.map((r) => `  - ${r}`).join("\n")}
 
-OUTPUT: return ONLY the JSON turn contract. facts_delta carries only fields you learned THIS turn, keyed exactly as in the list above, with null for anything still unknown.`;
+OUTPUT: return ONLY the JSON turn contract, "say" first. facts_delta carries only fields you learned THIS turn, keyed exactly as in the list above - omit fields you did not learn. Keep every string tight: decode time is dead air on the line.`;
+}
+
+/**
+ * Market expertise from the skill brief. What makes the agent sound like someone
+ * who has bought in this market before, rather than a script reading questions.
+ */
+function briefSection(pack: SkillPack): string {
+  const { knowledge, levers, objections } = pack.brief;
+  const lines: string[] = [];
+
+  if (knowledge.length) {
+    lines.push("MARKET KNOWLEDGE (negotiate like an insider; weave in naturally, never lecture):");
+    lines.push(...knowledge.map((k) => `  - ${k}`));
+  }
+  if (levers.length) {
+    lines.push("VALUE LEVERS (when the price stops moving, trade on these instead):");
+    lines.push(...levers.map((l) => `  - ${l}`));
+  }
+  if (objections.length) {
+    lines.push("STOCK OBJECTIONS (their line -> your move):");
+    lines.push(...objections.map((o) => `  - "${o.them}" -> ${o.move}`));
+  }
+  return lines.length ? `\n${lines.join("\n")}` : "";
 }
 
 /** Per-turn user message. Everything the model is allowed to know, and nothing else. */

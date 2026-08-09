@@ -12,47 +12,37 @@ import { log } from "../log.js";
  * exercise the exact code path that runs on stage.
  */
 
-/** JSON Schema for the turn contract, handed to Sarvam's structured outputs. */
-export function contractSchema(pack: SkillPack): Record<string, unknown> {
-  const factProps: Record<string, unknown> = {};
-  for (const [key, f] of Object.entries(pack.fact_schema)) {
-    const base =
-      f.type === "money" || f.type === "int"
-        ? { type: ["number", "null"] }
-        : f.type === "bool"
-          ? { type: ["boolean", "null"] }
-          : { type: ["string", "null"] };
-    factProps[key] = { ...base, description: f.ask_hint };
-  }
+/**
+ * The turn contract, written as a literal example.
+ *
+ * Sarvam's json_object mode carries no schema, so every constraint that used to
+ * live in a JSON Schema `description` has to be visible right here or the model
+ * never learns it. That is not a downgrade in practice - the first live probe
+ * against a real schema returned `"lang": " Hinglish"`, because the model was
+ * never shown the enum it was supposedly constrained to.
+ */
+export function contractShape(pack: SkillPack, langs: string[]): string {
+  const facts = Object.entries(pack.fact_schema)
+    .map(([key, f]) => {
+      const t =
+        f.type === "money" || f.type === "int" ? "number|null" : f.type === "bool" ? "true|false|null" : "string|null";
+      return `    "${key}": ${t}   // ${f.ask_hint}`;
+    })
+    .join("\n");
 
-  return {
-    type: "object",
-    additionalProperties: false,
-    required: ["say", "lang", "next_state", "facts_delta", "signals", "end_call", "note"],
-    properties: {
-      say: { type: "string", description: "What to say next. At most 26 words." },
-      lang: { type: "string", description: "BCP-47 code of the language you are speaking, e.g. hi-IN" },
-      next_state: { type: "string", enum: [...STATES] },
-      facts_delta: {
-        type: "object",
-        additionalProperties: false,
-        properties: factProps,
-        required: Object.keys(factProps),
-      },
-      signals: {
-        type: "object",
-        additionalProperties: false,
-        required: ["mood", "asked_if_bot", "wants_end"],
-        properties: {
-          mood: { type: "string", enum: ["warm", "neutral", "busy", "hostile"] },
-          asked_if_bot: { type: "boolean" },
-          wants_end: { type: "boolean" },
-        },
-      },
-      end_call: { type: "boolean" },
-      note: { type: "string", description: "At most 12 words, for the operator log." },
-    },
-  };
+  return [
+    "{",
+    '  "say": "string, at most 26 words, in the language you are speaking",',
+    `  "lang": "one of: ${langs.join(" | ")}",`,
+    `  "next_state": "one of: ${STATES.join(" | ")}",`,
+    '  "facts_delta": {   // ONLY keys you learned this turn. OMIT keys you did not learn - do not write null',
+    facts,
+    "  },",
+    '  "signals": { "mood": "warm|neutral|busy|hostile", "asked_if_bot": true|false, "wants_end": true|false },',
+    '  "end_call": true|false,',
+    '  "note": "string, at most 12 words, for the operator log"',
+    "}",
+  ].join("\n");
 }
 
 /**
@@ -130,6 +120,8 @@ export async function runTurn(args: {
   detectedLang: string;
   firstName: string;
   secondsLeft: number;
+  /** Fires as soon as the reply sentence is decoded, before the rest of the contract. */
+  onSay?: (say: string) => void;
 }): Promise<TurnResult> {
   const { pack, mission, call, bus } = args;
 
@@ -150,8 +142,11 @@ export async function runTurn(args: {
     heavy,
     label: `${pack.id}/${call.state}`,
     temperature: heavy ? 0.4 : 0.6,
-    maxTokens: 300,
-    jsonSchema: { name: "molbhav_turn", schema: contractSchema(pack) },
+    // A turn contract needs ~150 tokens. The cap is what a whitespace flood runs
+    // to before it stops, so every token of headroom here is dead air on the call.
+    maxTokens: 220,
+    json: { name: "molbhav_turn", shape: contractShape(pack, Object.keys(pack.voices)), primaryKey: "say" },
+    onPrimaryValue: args.onSay,
     messages: [
       { role: "system", content: systemCore(pack, { firstName: args.firstName }) },
       {

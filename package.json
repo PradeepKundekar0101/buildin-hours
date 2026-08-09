@@ -11,7 +11,9 @@
     "build": "pnpm --filter \"./apps/*\" build",
     "typecheck": "pnpm -r typecheck",
     "eval": "pnpm --filter orchestrator eval",
-    "skills:check": "pnpm --filter orchestrator skills:check"
+    "skills:check": "pnpm --filter orchestrator skills:check",
+    "twilio:check": "pnpm --filter orchestrator twilio:check",
+    "policy:check": "pnpm --filter orchestrator policy:check"
   },
   "engines": {
     "node": ">=20"

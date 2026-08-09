@@ -41,6 +41,12 @@ export type TwilioOptions = {
   counterparty: Counterparty;
   callId: string;
   openingLang: string;
+  /**
+   * Test mode: ring this number instead of the counterparty. Everything else about
+   * the call - name, language, persona, negotiation - is unchanged, so what you
+   * rehearse is what runs.
+   */
+  dialOverride?: string;
 };
 
 export class TwilioTransport implements Transport {
@@ -53,6 +59,16 @@ export class TwilioTransport implements Transport {
   private twilioCallSid: string | null = null;
   private stt: SttSession | null = null;
 
+  /**
+   * Twilio's `start` message - which carries the streamSid we must echo on every
+   * outbound frame - arrives *after* the websocket handshake. Anything spoken in
+   * that gap has nowhere to go, so we wait for it explicitly rather than letting
+   * the opener disappear.
+   */
+  private streamReady!: Promise<void>;
+  private markStreamReady!: () => void;
+  private framesSent = 0;
+
   private utteranceCb: ((text: string, lang?: string) => void) | null = null;
   private bargeInCb: (() => void) | null = null;
   private endedCb: ((reason: TransportEndReason) => void) | null = null;
@@ -62,16 +78,38 @@ export class TwilioTransport implements Transport {
   private speaking = false;
   private dead = false;
 
+  /**
+   * Echo defence. On a speakerphone our own playback leaks back into the caller's
+   * mic, Sarvam's VAD opens a turn on it, and a naive barge-in cuts our reply off
+   * mid-sentence - which is exactly what a "glitchy, broken" call sounds like.
+   * So barge-in is armed by speech_start but only *fires* once a transcript proves
+   * there are real words behind it, and any transcript that is mostly our own last
+   * line played back at us is dropped instead of being answered.
+   */
+  private bargeArmed = false;
+  private lastSpokenTokens = new Set<string>();
+  private playbackEndedAt = 0;
+
   constructor(private opts: TwilioOptions) {
     this.id = opts.callId;
+    this.streamReady = new Promise<void>((resolve) => {
+      this.markStreamReady = resolve;
+    });
   }
 
   async start(): Promise<void> {
     const streamUrl = `${env.publicBaseUrl.replace(/^https/, "wss")}/media/${this.opts.callId}`;
-    log.call(this.id, `dialling ${this.opts.counterparty.phone}`);
+    const to = this.opts.dialOverride || this.opts.counterparty.phone;
+
+    log.call(
+      this.id,
+      this.opts.dialOverride
+        ? `TEST dialling ${to} as "${this.opts.counterparty.name}" (real number ${this.opts.counterparty.phone} NOT called)`
+        : `dialling ${to}`
+    );
 
     const call = await client().calls.create({
-      to: this.opts.counterparty.phone,
+      to,
       from: env.twilioFrom,
       twiml:
         `<Response><Connect><Stream url="${streamUrl}">` +
@@ -103,7 +141,17 @@ export class TwilioTransport implements Transport {
     this.ws = ws;
     await this.bindSocket(ws);
     await this.openStt();
-    log.call(this.id, "media stream live");
+
+    // Do not report the line as ready until Twilio has told us the streamSid.
+    // Without this the opener is synthesised, dropped, and the caller hears silence.
+    await Promise.race([
+      this.streamReady,
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Twilio never sent the stream start event")), 15_000)
+      ),
+    ]);
+
+    log.call(this.id, `media stream live · streamSid ${this.streamSid}`);
   }
 
   private async bindSocket(ws: WebSocket): Promise<void> {
@@ -121,8 +169,13 @@ export class TwilioTransport implements Transport {
       }
 
       switch (msg.event) {
+        case "connected":
+          log.call(this.id, "twilio websocket connected");
+          break;
         case "start":
           this.streamSid = msg.streamSid ?? null;
+          log.call(this.id, `stream start · sid ${this.streamSid}`);
+          if (this.streamSid) this.markStreamReady();
           break;
         case "media":
           // Straight through. No decode, no resample.
@@ -156,13 +209,32 @@ export class TwilioTransport implements Transport {
       prompt: skuPrompt,
       events: {
         onSpeechStart: () => {
-          // They talked over us: drop everything Twilio has buffered immediately.
-          if (this.speaking) {
+          // Might be the caller talking over us - or our own echo. Arm the
+          // barge-in and let a transcript with actual words pull the trigger.
+          if (this.speaking) this.bargeArmed = true;
+        },
+        onPartial: (text) => {
+          if (!this.speaking || !this.bargeArmed) return;
+          if (!meaningfulSpeech(text) || this.isEcho(text)) return;
+          this.bargeArmed = false;
+          log.call(this.id, `barge-in confirmed by "${text.slice(0, 30)}"`);
+          this.clearPlayback();
+          this.bargeInCb?.();
+        },
+        onFinal: (text, lang) => {
+          // Our own line coming back at us is not the shopkeeper speaking.
+          if (this.isEcho(text) && (this.speaking || Date.now() - this.playbackEndedAt < 1200)) {
+            log.call(this.id, `dropped echo "${text.slice(0, 40)}"`);
+            return;
+          }
+          // Finals can arrive without a partial ever firing; honour the barge-in here too.
+          if (this.speaking && meaningfulSpeech(text)) {
+            this.bargeArmed = false;
             this.clearPlayback();
             this.bargeInCb?.();
           }
+          this.utteranceCb?.(text, lang);
         },
-        onFinal: (text, lang) => this.utteranceCb?.(text, lang),
         onError: (err) => log.call(this.id, `stt: ${err.message}`),
       },
     });
@@ -179,25 +251,71 @@ export class TwilioTransport implements Transport {
   }
 
   async speak(text: string, lang: string): Promise<void> {
-    if (this.dead || !this.ws || !this.streamSid) return;
+    if (this.dead) return;
 
-    const audio = await synthesize({ text, lang, pack: this.opts.pack });
-    if (this.dead || !this.ws || !this.streamSid) return;
-
-    this.speaking = true;
-    const markName = `m${Date.now()}${Math.floor(Math.random() * 1000)}`;
-
-    for (let off = 0; off < audio.length; off += FRAME_BYTES) {
-      const frame = audio.subarray(off, Math.min(off + FRAME_BYTES, audio.length));
-      this.ws.send(
-        JSON.stringify({
-          event: "media",
-          streamSid: this.streamSid,
-          media: { payload: frame.toString("base64") },
-        })
-      );
+    // Never drop a line because the stream was a beat late.
+    if (!this.streamSid) await this.streamReady.catch(() => undefined);
+    if (this.dead || !this.ws || !this.streamSid) {
+      log.call(this.id, `WARN dropped "${text.slice(0, 40)}" - no stream to send it on`);
+      return;
     }
+
+    // Sentence-level pipeline: every sentence is synthesised concurrently, and the
+    // first one goes on the wire the moment it lands. Time-to-first-audio is one
+    // short TTS call, not the whole reply.
+    const parts = splitForTts(text);
+    const jobs = parts.map((p) =>
+      synthesize({ text: p, lang, pack: this.opts.pack }).catch((err) => {
+        log.call(this.id, `TTS failed: ${err instanceof Error ? err.message : err}`);
+        return Buffer.alloc(0);
+      })
+    );
+
+    this.bargeArmed = false;
+    this.lastSpokenTokens = tokenize(text);
+
+    // `speaking` flips on with the first frame, not before: a caller utterance that
+    // lands while we are still synthesising is a queued turn, not a barge-in.
+    let started = false;
+    let totalBytes = 0;
+    let frames = 0;
+    for (const job of jobs) {
+      const audio = await job;
+      if (this.dead || !this.ws || !this.streamSid) break;
+      // Barge-in mid-reply: they are talking, stop feeding sentences at them.
+      if (started && !this.speaking) break;
+      if (!audio.length) continue;
+      if (!started) {
+        this.speaking = true;
+        started = true;
+      }
+
+      for (let off = 0; off < audio.length; off += FRAME_BYTES) {
+        const frame = audio.subarray(off, Math.min(off + FRAME_BYTES, audio.length));
+        this.ws.send(
+          JSON.stringify({
+            event: "media",
+            streamSid: this.streamSid,
+            media: { payload: frame.toString("base64") },
+          })
+        );
+        frames++;
+      }
+      totalBytes += audio.length;
+    }
+
+    if (!totalBytes || this.dead || !this.ws || !this.streamSid || !this.speaking) {
+      if (!totalBytes) log.call(this.id, "WARN TTS returned zero bytes");
+      this.speaking = false;
+      this.playbackEndedAt = Date.now();
+      return;
+    }
+
+    const markName = `m${Date.now()}${Math.floor(Math.random() * 1000)}`;
     this.ws.send(JSON.stringify({ event: "mark", streamSid: this.streamSid, mark: { name: markName } }));
+
+    this.framesSent += frames;
+    log.call(this.id, `spoke ${frames} frames (${(frames * 20) / 1000}s) "${text.slice(0, 40)}"`);
 
     await new Promise<void>((resolve) => {
       // Resolve on the mark, on barge-in clearing us, or on a hard ceiling so a
@@ -205,7 +323,7 @@ export class TwilioTransport implements Transport {
       const ceiling = setTimeout(() => {
         this.markResolvers.delete(markName);
         resolve();
-      }, Math.max(4000, (audio.length / 8000) * 1000 + 2500));
+      }, Math.max(4000, (totalBytes / 8000) * 1000 + 2500));
 
       this.markResolvers.set(markName, () => {
         clearTimeout(ceiling);
@@ -214,6 +332,16 @@ export class TwilioTransport implements Transport {
     });
 
     this.speaking = false;
+    this.playbackEndedAt = Date.now();
+  }
+
+  /** True when the transcript is mostly our own last line leaking back at us. */
+  private isEcho(text: string): boolean {
+    if (!this.lastSpokenTokens.size) return false;
+    const theirs = [...tokenize(text)];
+    if (!theirs.length) return false;
+    const overlap = theirs.filter((t) => this.lastSpokenTokens.has(t)).length;
+    return overlap / theirs.length >= 0.7;
   }
 
   private clearPlayback(): void {
@@ -225,6 +353,8 @@ export class TwilioTransport implements Transport {
       resolve();
     }
     this.speaking = false;
+    this.bargeArmed = false;
+    this.playbackEndedAt = Date.now();
   }
 
   /** Called by the AMD webhook. */
@@ -265,6 +395,34 @@ export class TwilioTransport implements Transport {
     }
     this.endedCb?.(reason);
   }
+}
+
+/** Words that matter for echo comparison: lowercase, no punctuation, no one-letter noise. */
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter((t) => t.length > 1)
+  );
+}
+
+/** Enough words to be a person talking, rather than a cough or a horn. */
+function meaningfulSpeech(text: string): boolean {
+  return tokenize(text).size >= 2 || text.trim().length >= 8;
+}
+
+/**
+ * Split a reply at sentence boundaries for pipelined TTS. Numbers like "62,000"
+ * must never be split, so only a boundary followed by whitespace counts.
+ */
+export function splitForTts(text: string): string[] {
+  const parts = text
+    .split(/(?<=[.?!।])\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length ? parts : [text.trim()];
 }
 
 /** Bias recognition toward the words this call will actually contain. */

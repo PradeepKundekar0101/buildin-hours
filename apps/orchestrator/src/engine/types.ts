@@ -45,6 +45,8 @@ export type Mission = {
   spec: MissionSpec;
   created_at: number;
   status: "running" | "done" | "cancelled";
+  /** Rehearsal against a redirected number. Never counts toward public savings. */
+  test: boolean;
 };
 
 export type CallOutcome =

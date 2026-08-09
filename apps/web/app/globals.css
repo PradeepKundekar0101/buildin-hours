@@ -221,6 +221,68 @@ h1.headline em {
 .chip:hover { border-color: var(--brass); color: var(--chalk); }
 .chip[data-active="true"] { border-color: var(--brass); color: var(--brass); }
 
+/* Test mode has to be impossible to miss, in both directions: nobody should run a
+   rehearsal thinking it is real, or dial a real shop thinking it is a rehearsal. */
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--hair);
+  background: var(--ink-panel);
+  border-radius: 999px;
+  padding: 7px 15px 7px 11px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--chalk-dim);
+  user-select: none;
+  transition: all 140ms ease;
+}
+.toggle:hover { border-color: var(--brass); }
+.toggle[data-on="true"] {
+  border-color: var(--brass);
+  color: var(--brass);
+  background: rgba(200, 146, 46, 0.09);
+}
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+
+.toggle-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chalk-faint);
+  flex: none;
+}
+.toggle[data-on="true"] .toggle-led { background: var(--brass); box-shadow: 0 0 8px var(--brass); }
+
+.mode-note {
+  font-family: var(--font-data);
+  font-size: 12px;
+  color: var(--chalk-faint);
+}
+.mode-note b { color: var(--brass); font-weight: 400; }
+
+.test-banner {
+  border: 1px solid var(--brass);
+  background: rgba(200, 146, 46, 0.09);
+  padding: 11px 16px;
+  margin: 18px 0 0;
+  font-family: var(--font-data);
+  font-size: 12.5px;
+  color: var(--chalk);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.test-banner b { color: var(--brass); }
+
 .error {
   margin-top: 16px;
   border-left: 2px solid var(--vermilion);
@@ -438,6 +500,78 @@ h1.headline em {
 }
 .line-state[data-state="NEGOTIATE"] { color: var(--brass); }
 .line-state[data-state="DONE"]      { color: var(--jade); }
+
+/* The conversation. On a call, this is the thing people actually lean in to read. */
+.line-card.has-convo { grid-template-areas: "no who value" "convo convo convo"; }
+
+.convo {
+  grid-area: convo;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--hair);
+  display: grid;
+  gap: 9px;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hair) transparent;
+}
+
+.utterance { display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: baseline; }
+
+.utterance-who {
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: right;
+  color: var(--chalk-faint);
+  padding-top: 2px;
+}
+.utterance[data-role="us"] .utterance-who { color: var(--brass); }
+
+.utterance-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--chalk-dim);
+}
+.utterance[data-role="us"] .utterance-text { color: var(--chalk); }
+
+.utterance-meta {
+  font-family: var(--font-data);
+  font-size: 10px;
+  color: var(--chalk-faint);
+  margin-left: 8px;
+}
+
+.convo-live {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+.convo-dots { display: inline-flex; gap: 4px; }
+.convo-dots i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--chalk-faint);
+  animation: blink 1.3s infinite;
+}
+.convo-dots i:nth-child(2) { animation-delay: 0.18s; }
+.convo-dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+
+.convo-toggle {
+  background: none;
+  border: 0;
+  color: var(--chalk-faint);
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 0;
+}
+.convo-toggle:hover { color: var(--brass); }
 
 /* Signature: the leverage arc. A number learned on one line, used on another. */
 .arc-layer {

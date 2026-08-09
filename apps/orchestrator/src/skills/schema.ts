@@ -109,6 +109,20 @@ export const SkillPackSchema = z
       extra_rules: z.array(z.string()).default([]),
     }),
 
+    /**
+     * Distilled market expertise from the negotiation skill briefs: what an insider
+     * knows, what to trade when price stalls, and the counter to each stock
+     * objection. Everything here rides in the system prompt, so keep entries short -
+     * every token is time-to-first-word on a live call.
+     */
+    brief: z
+      .object({
+        knowledge: z.array(z.string()).default([]),
+        levers: z.array(z.string()).default([]),
+        objections: z.array(z.object({ them: z.string(), move: z.string() })).default([]),
+      })
+      .default({ knowledge: [], levers: [], objections: [] }),
+
     persona: z.object({
       style: z.string().min(1),
       honorifics: z.array(z.string()).default([]),

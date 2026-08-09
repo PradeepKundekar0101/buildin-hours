@@ -23,6 +23,33 @@ export type SpeakOptions = {
 
 const cache = new Map<string, Buffer>();
 
+/**
+ * Lines we say over and over. They are pre-synthesised at mission start and served
+ * from memory afterwards, which is the difference between a filler that covers the
+ * model's thinking time and one that adds to it.
+ */
+const FILLERS: Record<string, string[]> = {
+  "hi-IN": ["Ek second ji.", "Achha, samajh gaya.", "Ji, sun raha hoon."],
+  "en-IN": ["One second please.", "Got it.", "Okay, understood."],
+  "kn-IN": ["Ondu nimisha.", "Sari, artha aaytu."],
+  "ta-IN": ["Oru nimisham.", "Sari, purinjuchu."],
+  "te-IN": ["Oka nimisham.", "Sare, artham ayindi."],
+};
+
+/**
+ * Spoken when the clock - not the conversation - ends the call. A line going dead
+ * mid-question reads as a network fault and burns the lead for the next call.
+ */
+const CLOSERS: Record<string, string> = {
+  "hi-IN": "Achha ji, mujhe details mil gayi. Customer se baat karke wapas call karta hoon. Dhanyavaad!",
+  "en-IN": "Okay, I have the details I need. I will check with my customer and call back. Thank you!",
+  "kn-IN": "Sari anna, details sikkitu. Customer jothe maathadi waapas call madthini. Dhanyavaadagalu!",
+  "ta-IN": "Sari anna, details kedaichuduchu. Customer kitta pesittu thirumba call pandren. Nandri!",
+  "te-IN": "Sare andi, details vachayi. Customer tho maatladi malli call chestanu. Dhanyavaadalu!",
+};
+
+const CACHEABLE = new Set([...Object.values(FILLERS).flat(), ...Object.values(CLOSERS)]);
+
 /** Sarvam pronounces long digit strings better when they are comma grouped. */
 export function groupNumbers(text: string): string {
   return text.replace(/\b\d{5,}\b/g, (n) => Number(n).toLocaleString("en-IN"));
@@ -59,7 +86,11 @@ export async function synthesize(opts: SpeakOptions): Promise<Buffer> {
   const text = groupNumbers(opts.text.trim());
   const key = `${pack.tts.model}|${speaker}|${lang}|${text}`;
 
-  if (opts.cacheable) {
+  // Callers should not have to remember which lines are worth caching; the transport
+  // just calls speak(). Recognise the repeated lines here instead.
+  const cacheable = opts.cacheable ?? CACHEABLE.has(text);
+
+  if (cacheable) {
     const hit = cache.get(key);
     if (hit) return hit;
   }
@@ -85,7 +116,7 @@ export async function synthesize(opts: SpeakOptions): Promise<Buffer> {
   const raw = toRawMulaw(b64);
   log.info(`tts ${Date.now() - started}ms ${raw.length}B ${speaker}/${lang} "${text.slice(0, 40)}"`);
 
-  if (opts.cacheable) cache.set(key, raw);
+  if (cacheable) cache.set(key, raw);
   return raw;
 }
 
@@ -94,16 +125,13 @@ export async function synthesize(opts: SpeakOptions): Promise<Buffer> {
  * call costs nothing. Called once per mission before dialling.
  */
 export async function warmFillers(pack: SkillPack, langs: string[]): Promise<void> {
-  const lines: Record<string, string[]> = {
-    "hi-IN": ["Ek second ji.", "Achha, samajh gaya.", "Ji, sun raha hoon."],
-    "en-IN": ["One second please.", "Got it.", "Okay, understood."],
-    "kn-IN": ["Ondu nimisha.", "Sari, artha aaytu."],
-    "ta-IN": ["Oru nimisham.", "Sari, purinjuchu."],
-    "te-IN": ["Oka nimisham.", "Sare, artham ayindi."],
-  };
+  // Warm English too: language detection can land anywhere, and an unwarmed filler
+  // costs the 1.5s it was meant to hide.
+  const wanted = [...new Set([...langs, "en-IN"])];
   const jobs: Promise<unknown>[] = [];
-  for (const lang of langs) {
-    for (const text of lines[lang] ?? lines["en-IN"]) {
+  for (const lang of wanted) {
+    const lines = [...(FILLERS[lang] ?? FILLERS["en-IN"]), CLOSERS[lang] ?? CLOSERS["en-IN"]];
+    for (const text of lines) {
       jobs.push(
         synthesize({ text, lang, pack, cacheable: true }).catch((e) =>
           log.warn(`filler warm failed ${lang}: ${e instanceof Error ? e.message : e}`)
@@ -115,12 +143,9 @@ export async function warmFillers(pack: SkillPack, langs: string[]): Promise<voi
 }
 
 export function fillerFor(lang: string): string {
-  const map: Record<string, string> = {
-    "hi-IN": "Ek second ji.",
-    "kn-IN": "Ondu nimisha.",
-    "ta-IN": "Oru nimisham.",
-    "te-IN": "Oka nimisham.",
-    "en-IN": "One second please.",
-  };
-  return map[lang] ?? map["en-IN"];
+  return (FILLERS[lang] ?? FILLERS["en-IN"])[0];
+}
+
+export function closerFor(lang: string): string {
+  return CLOSERS[lang] ?? CLOSERS["en-IN"];
 }

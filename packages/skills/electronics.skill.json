@@ -41,10 +41,30 @@
     "alt_inventory": false
   },
   "policies": {
-    "call_cap_s": 150,
+    "call_cap_s": 240,
     "extra_rules": [
       "never reveal the customer's budget",
       "if they have no stock, ask once whether a nearby branch has it, then wrap"
+    ]
+  },
+  "brief": {
+    "knowledge": [
+      "MRP is a legal ceiling, not the selling price - genuine street price is always below it",
+      "exchange bonus is a promotional discount on top of the old device's real value; ask for both itemised separately",
+      "bank card instant discounts and no-cost EMI stack on top of a negotiated price - ask which banks qualify today",
+      "extended warranty is the store's highest-margin add-on: always optional, often free on a big ticket",
+      "a proper GST bill is non-negotiable - warranty is invalid without it"
+    ],
+    "levers": [
+      "extra discount for full cash or UPI payment today",
+      "free cover, screen guard, or accessories when the price is stuck",
+      "open-box or demo unit at a real discount with full warranty, if they mention one"
+    ],
+    "objections": [
+      { "them": "price is fixed by the company, MRP is fixed", "move": "MRP is the ceiling, not the price - ask what discount off MRP is realistic today" },
+      { "them": "extended warranty is compulsory for this discount", "move": "it is optional by law - ask for the base price without it" },
+      { "them": "exchange bonus is fixed by policy", "move": "ask for plain exchange value and promotional bonus quoted separately" },
+      { "them": "installation or delivery is billed separately", "move": "ask for it to be included at this price" }
     ]
   },
   "persona": { "style": "warm-brisk", "honorifics": ["boss", "anna", "bhaiya"] },

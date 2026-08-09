@@ -43,7 +43,7 @@
     "alt_inventory": false
   },
   "policies": {
-    "call_cap_s": 160,
+    "call_cap_s": 240,
     "extra_rules": [
       "always pin down hidden charges before agreeing to any number",
       "never reveal the customer's budget"

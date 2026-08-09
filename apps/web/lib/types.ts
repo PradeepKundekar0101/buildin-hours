@@ -40,6 +40,14 @@ export type MissionEvent = {
   [k: string]: unknown;
 };
 
+export type Utterance = {
+  at: number;
+  role: "us" | "them";
+  text: string;
+  lang?: string;
+  latency_ms?: number;
+};
+
 /** One open line, assembled on the client from the event stream. */
 export type Line = {
   cp: Counterparty;
@@ -47,6 +55,8 @@ export type Line = {
   facts: Record<string, unknown>;
   value: number | null;
   first: number | null;
+  /** The whole conversation, in order. This is the thing people actually watch. */
+  turns: Utterance[];
   lastText: string;
   lastRole: "us" | "them";
   lang?: string;

@@ -31,6 +31,16 @@ server.on("upgrade", (req, socket, head) => {
   }
   const callId = match[1];
   wss.handleUpgrade(req, socket, head, (ws) => {
+    // `pnpm twilio:check` probes this path to prove the tunnel allows websocket
+    // upgrades. Twilio reports a rejected upgrade only as error 31920, so it is
+    // worth being able to test it without placing a call.
+    if (callId === "preflight") {
+      ws.send(JSON.stringify({ event: "preflight-ok" }));
+      setTimeout(() => ws.close(1000, "preflight complete"), 400);
+      log.info("websocket preflight probe accepted");
+      return;
+    }
+
     if (!attachMediaStream(callId, ws)) {
       log.warn(`media stream for unknown call ${callId}, closing`);
       ws.close();

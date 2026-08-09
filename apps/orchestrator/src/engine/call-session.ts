@@ -2,9 +2,22 @@ import { randomUUID } from "node:crypto";
 import type { SkillPack } from "../skills/schema.js";
 import type { FactBus } from "./fact-bus.js";
 import { runTurn, opener } from "./negotiator.js";
+import { fillerFor, closerFor } from "../sarvam/tts.js";
 import type { Transport, TransportEndReason } from "./transport.js";
 import type { CallOutcome, CallRecord, Counterparty, Mission, State } from "./types.js";
 import { log } from "../log.js";
+
+/** How long to let a caller keep talking before we compose a reply. Sarvam's VAD
+ *  already waits 700ms of silence before finalising, so this only needs to catch
+ *  the burst that finalises in two pieces - not re-buy the whole silence window. */
+const SETTLE_MS = 250;
+
+/** How long a caller will tolerate silence before the line feels dead. */
+const FILLER_AFTER_MS = 700;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 /**
  * One counterparty, one conversation. Owns the state machine, the clock, and the
@@ -76,7 +89,10 @@ export class CallSession {
     }
 
     this.startedAt = Date.now();
-    this.capTimer = setTimeout(() => void this.wrapUp("capped"), this.pack.policies.call_cap_s * 1000);
+    this.capTimer = setTimeout(
+      () => void this.wrapUp("capped", { goodbye: true }),
+      this.pack.policies.call_cap_s * 1000
+    );
 
     this.setState("GREET_LANG");
     const line = opener(this.pack, this.mission, this.call.lang);
@@ -103,17 +119,27 @@ export class CallSession {
     if (this.ended) return;
     if (!text.trim()) return;
 
-    if (this.busyWithTurn) {
-      this.pending.push({ text, lang });
-      return;
-    }
+    this.pending.push({ text, lang });
+    if (this.busyWithTurn) return;
+
+    // People speak in bursts, and Sarvam finalises each one. Answering the first
+    // fragment means talking over the rest of their sentence, so wait a beat and
+    // fold anything that lands in that window into the same turn.
+    await sleep(SETTLE_MS);
+    void this.drain();
+  }
+
+  /** Take everything the caller has said and answer it as one turn, in order. */
+  private async drain(): Promise<void> {
+    if (this.ended || this.busyWithTurn) return;
+
+    const merged = this.pending.splice(0);
+    if (!merged.length) return;
 
     this.busyWithTurn = true;
     try {
-      // Fold anything that queued up while we were thinking into one context.
-      const queued = this.pending.splice(0);
-      const theirLast = [text, ...queued.map((q) => q.text)].join(" ");
-      const detectedLang = lang ?? queued.at(-1)?.lang ?? this.call.lang;
+      const theirLast = merged.map((q) => q.text).join(" ");
+      const detectedLang = merged.at(-1)?.lang ?? this.call.lang;
 
       if (detectedLang && detectedLang !== this.call.lang) {
         log.call(this.call.id, `language switch ${this.call.lang} -> ${detectedLang}`);
@@ -122,7 +148,19 @@ export class CallSession {
 
       this.pushTurn("them", theirLast, detectedLang);
 
-      const result = await runTurn({
+      // Filler state lives out here because the early-speech callback below must be
+      // able to cancel it the moment real words are ready.
+      let fillerPlaying: Promise<void> | null = null;
+      let fillerTimer: NodeJS.Timeout | null = null;
+
+      // The reply sentence decodes seconds before the rest of the turn contract on
+      // a live line, so speech starts from the stream, not from the parsed result.
+      // PSTN only: the simulator is a text peer, and early speech there would fork
+      // the transcript from what the contract actually said.
+      let earlySay: string | null = null;
+      let earlySpeech: Promise<void> | null = null;
+
+      const thinking = runTurn({
         pack: this.pack,
         mission: this.mission,
         call: this.call,
@@ -131,7 +169,57 @@ export class CallSession {
         detectedLang,
         firstName: this.firstName,
         secondsLeft: this.secondsLeft,
+        onSay:
+          this.transport.kind === "pstn"
+            ? (say) => {
+                if (this.ended || earlySpeech) return;
+                earlySay = say;
+                if (fillerTimer) {
+                  clearTimeout(fillerTimer);
+                  fillerTimer = null;
+                }
+                earlySpeech = (async () => {
+                  // Never talk over ourselves: let a filler already playing finish.
+                  if (fillerPlaying) await fillerPlaying;
+                  await this.transport.speak(say, detectedLang);
+                })().catch(() => undefined);
+              }
+            : undefined,
       });
+
+      // Silence on a phone call reads as a dropped line, and people hang up. If the
+      // model is still composing after a beat, say what a person would say - the
+      // filler is pre-synthesised, so it costs nothing but the playback itself.
+      // Only on a real line. The simulator has no audio, and feeding it a filler
+      // would put "ek second ji" into the transcript as a negotiating move.
+      fillerTimer =
+        this.transport.kind === "pstn"
+          ? setTimeout(() => {
+              fillerTimer = null;
+              fillerPlaying = this.transport
+                .speak(fillerFor(detectedLang), detectedLang)
+                .catch(() => undefined);
+            }, FILLER_AFTER_MS)
+          : null;
+
+      let result: Awaited<typeof thinking>;
+      try {
+        result = await thinking;
+      } catch (err) {
+        // The sentence may already be on the wire even though the contract never
+        // parsed. That is a fine turn on its own - record it and stay in state.
+        if (earlySpeech) {
+          log.call(this.call.id, `contract unusable after early speech: ${err instanceof Error ? err.message : err}`);
+          this.pushTurn("us", earlySay ?? "", detectedLang);
+          await earlySpeech;
+          return;
+        }
+        throw err;
+      } finally {
+        if (fillerTimer) clearTimeout(fillerTimer);
+        // Never talk over ourselves: let the filler finish before the real reply.
+        if (fillerPlaying && !earlySpeech) await fillerPlaying;
+      }
 
       const { contract } = result;
 
@@ -156,7 +244,11 @@ export class CallSession {
         this.call.rounds += 1;
       }
 
-      if (contract.say) {
+      if (earlySpeech) {
+        // Speech began mid-stream; the transcript records what actually went on air.
+        this.pushTurn("us", earlySay ?? contract.say, contract.lang, result.latencyMs);
+        await earlySpeech;
+      } else if (contract.say) {
         this.pushTurn("us", contract.say, contract.lang, result.latencyMs);
         await this.transport.speak(contract.say, contract.lang);
       }
@@ -173,9 +265,9 @@ export class CallSession {
 
       this.setState(contract.next_state);
 
-      if (this.secondsLeft <= 12 && this.call.state !== "WRAP") {
+      if (this.secondsLeft <= 25 && this.call.state !== "WRAP") {
         log.call(this.call.id, "time cap approaching, wrapping");
-        await this.wrapUp(this.outcomeFromFacts());
+        await this.wrapUp(this.outcomeFromFacts(), { goodbye: true });
       }
     } catch (err) {
       log.call(this.call.id, `turn failed: ${err instanceof Error ? err.message : err}`);
@@ -187,8 +279,8 @@ export class CallSession {
       }
     } finally {
       this.busyWithTurn = false;
-      const next = this.pending.shift();
-      if (next) void this.handleUtterance(next.text, next.lang);
+      // Anything said while we were thinking is still queued, in order.
+      if (this.pending.length) void this.drain();
     }
   }
 
@@ -214,8 +306,23 @@ export class CallSession {
     this.finish(map[reason]);
   }
 
-  private async wrapUp(outcome: CallOutcome): Promise<void> {
+  private async wrapUp(outcome: CallOutcome, opts?: { goodbye?: boolean }): Promise<void> {
     if (this.ended) return;
+
+    // When the clock ends the call rather than the conversation, going silent
+    // mid-question reads as a dropped line and burns the lead. Say a proper
+    // close first - it is pre-synthesised, so it costs only its own playback.
+    // The model-initiated paths (wants_end, WRAP) already spoke their goodbye.
+    if (opts?.goodbye && this.transport.kind === "pstn") {
+      const line = closerFor(this.call.lang);
+      this.pushTurn("us", line, this.call.lang);
+      try {
+        await this.transport.speak(line, this.call.lang);
+      } catch {
+        /* line already gone */
+      }
+    }
+
     try {
       await this.transport.hangup(outcome);
     } catch {

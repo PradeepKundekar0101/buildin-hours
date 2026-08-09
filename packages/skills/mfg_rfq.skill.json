@@ -44,7 +44,7 @@
     "alt_inventory": false
   },
   "policies": {
-    "call_cap_s": 200,
+    "call_cap_s": 300,
     "extra_rules": [
       "confirm the exact spec before discussing any price",
       "never commit to a purchase order on the call - always 'we will send a formal RFQ'"

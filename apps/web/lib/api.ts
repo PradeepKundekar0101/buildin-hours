@@ -13,6 +13,9 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   skills: () => json<{ skills: import("./types").Skill[] }>("/skills"),
 
+  health: () =>
+    json<{ ok: boolean; twilio: boolean; test_number: string | null; test_default: boolean }>("/health"),
+
   compose: (text: string) =>
     json<{
       skill_id: string;
@@ -28,10 +31,15 @@ export const api = {
     phones?: string[];
     mode?: "pstn" | "sim";
     first_name?: string;
+    /** Ring the test number instead of the shops. */
+    test?: boolean;
+    test_number?: string;
   }) =>
     json<{
       mission_id: string;
       mode: string;
+      test: boolean;
+      test_redirect: string | null;
       skill: { id: string; label: string; emoji: string; ui: { mode: string; hero_metric: string }; columns: import("./types").Column[] };
       counterparties: import("./types").Counterparty[];
     }>("/missions", { method: "POST", body: JSON.stringify(body) }),

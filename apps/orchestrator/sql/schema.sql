@@ -14,6 +14,9 @@ create table if not exists missions (
   created_at        timestamptz not null default now()
 );
 
+-- Rehearsals against a redirected number. Excluded from every public number.
+alter table missions add column if not exists test boolean not null default false;
+
 create index if not exists missions_skill_idx on missions (skill_id, created_at desc);
 
 create table if not exists calls (
@@ -57,7 +60,8 @@ select
   coalesce(sum(m.savings), 0)                              as saved,
   count(c.id) filter (where c.outcome = 'dead_lead')       as dead_leads
 from missions m
-left join calls c on c.mission_id = m.id;
+left join calls c on c.mission_id = m.id
+where m.test is not true;
 
 -- The Bhav Index: what a thing actually closes at, per market and locality.
 create or replace view bhav_index as
@@ -78,4 +82,5 @@ select
 from calls c
 join missions m on m.id = c.mission_id
 where c.final_quote is not null
+  and m.test is not true
 group by 1, 2;
