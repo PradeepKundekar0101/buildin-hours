@@ -1,4 +1,4 @@
-# MolBhav v3
+# Panchayat AI
 
 **The negotiation engine for every bazaar.**
 One engine phones India's offline markets in their own languages.
