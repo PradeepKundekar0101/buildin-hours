@@ -1,14 +1,19 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { Rail } from "@/components/Rail";
-import { Board } from "@/components/Board";
+import { Office } from "@/components/Office";
 import { API } from "@/lib/api";
 import type { Column, Counterparty } from "@/lib/types";
 
 type Snapshot = {
   mission: { id: string; skill_id: string; spec: Record<string, unknown> };
-  skill: { id: string; label: string; emoji: string; ui: { mode: "ticker" | "table"; hero_metric: string }; columns: Column[] };
+  skill: {
+    id: string;
+    label: string;
+    emoji: string;
+    ui: { mode: "ticker" | "table"; hero_metric: string };
+    columns: Column[];
+  };
   bus: { cp: Counterparty }[];
 };
 
@@ -29,40 +34,31 @@ export default function MissionPage({ params }: { params: Promise<{ id: string }
 
   if (error) {
     return (
-      <>
-        <Rail />
-        <main className="shell">
-          <div className="error" style={{ marginTop: 40 }}>{error}</div>
-        </main>
-      </>
+      <main className="title-screen">
+        <div className="px-panel error-box" style={{ marginTop: 60 }}>
+          {error}
+        </div>
+      </main>
     );
   }
 
   if (!snap) {
     return (
-      <>
-        <Rail />
-        <main className="shell">
-          <p className="mission-spec" style={{ marginTop: 40 }}>Opening the board…</p>
-        </main>
-      </>
+      <main className="title-screen">
+        <div className="px-panel toast" style={{ position: "static", transform: "none", marginTop: 60 }}>
+          Opening the office…
+        </div>
+      </main>
     );
   }
 
   return (
-    <>
-      <Rail />
-      <main className="shell">
-        <Board
-          missionId={id}
-          counterparties={snap.bus.map((b) => b.cp)}
-          heroMetric={snap.skill.ui.hero_metric}
-          columns={snap.skill.columns}
-          mode={snap.skill.ui.mode}
-          title={`${snap.skill.emoji} ${snap.skill.label}`}
-          spec={snap.mission.spec}
-        />
-      </main>
-    </>
+    <Office
+      missionId={id}
+      counterparties={snap.bus.map((b) => b.cp)}
+      heroMetric={snap.skill.ui.hero_metric}
+      title={`${snap.skill.emoji} ${snap.skill.label}`}
+      spec={snap.mission.spec}
+    />
   );
 }

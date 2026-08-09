@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Rail } from "@/components/Rail";
-import { api } from "@/lib/api";
+import { api, rupees } from "@/lib/api";
 import type { Skill } from "@/lib/types";
 
 const EXAMPLES = [
@@ -15,16 +14,23 @@ const EXAMPLES = [
 export default function Home() {
   const router = useRouter();
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [stats, setStats] = useState<Awaited<ReturnType<typeof api.stats>> | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testMode, setTestMode] = useState(true);
   const [config, setConfig] = useState<{ test_number: string | null; twilio: boolean } | null>(null);
-  const [pending, setPending] = useState<{ skill_id: string; options: { id: string; label: string; emoji: string }[]; spec: Record<string, string | number>; phones: string[] } | null>(null);
+  const [pending, setPending] = useState<{
+    skill_id: string;
+    options: { id: string; label: string; emoji: string }[];
+    spec: Record<string, string | number>;
+    phones: string[];
+  } | null>(null);
 
   useEffect(() => {
     api.skills().then((r) => setSkills(r.skills)).catch((e) => setError(String(e.message)));
     api.health().then((h) => setConfig({ test_number: h.test_number, twilio: h.twilio })).catch(() => undefined);
+    api.stats().then(setStats).catch(() => undefined);
   }, []);
 
   async function submit(overrideSkill?: string) {
@@ -68,124 +74,134 @@ export default function Home() {
   }
 
   return (
-    <>
-      <Rail />
-      <main className="shell">
-        <section className="hero">
-          <div className="eyebrow">One engine · every bazaar</div>
-          <h1 className="headline">
-            India negotiates by phone.
-            <br />
-            <em>So does this.</em>
-          </h1>
-          <p className="subhead">
-            Tell MolBhav what you need. It finds the shops, calls six of them at once in whatever language
-            they answer in, and lets each call use what the others just learned.
-          </p>
+    <main className="title-screen">
+      <div className="scoreboard">
+        <span className="px-plate">
+          SAVED <b>{rupees(stats?.saved ?? 0)}</b>
+        </span>
+        <span className="px-plate">
+          CALLS <b>{stats?.calls ?? 0}</b>
+        </span>
+        <span className="px-plate">
+          MISSIONS <b>{stats?.missions ?? 0}</b>
+        </span>
+      </div>
 
-          <div className="composer">
-            <div className="composer-box">
-              <input
-                value={text}
-                onChange={(e) => {
-                  setText(e.target.value);
-                  setPending(null);
-                }}
-                onKeyDown={(e) => e.key === "Enter" && submit()}
-                placeholder="What do you need?"
-                aria-label="What do you need?"
-                disabled={busy}
-              />
-              <button className="btn" onClick={() => submit()} disabled={busy}>
-                {busy ? "Starting…" : "Start calling"}
-              </button>
+      <h1 className="game-title">
+        MOL<em>BHAV</em>
+      </h1>
+      <p className="game-sub">The bazaar negotiation game</p>
+
+      <div className="px-panel hero-frame">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/game/hero.png" alt="The MolBhav office: four agents on the phones and the manager down front" />
+      </div>
+
+      <div className="composer">
+        <div className="listener">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/game/manager.png" alt="" aria-hidden />
+          <div className="cloud">
+            <span className="who">Manager</span>
+            {text.trim()
+              ? `Got it: "${text.trim().slice(0, 60)}${text.trim().length > 60 ? "…" : ""}" - say the word and I'll brief the team.`
+              : "Boss, what are we hunting today? Type it below - I'm listening."}
+          </div>
+        </div>
+
+        <div className="px-panel chat-bar">
+          <span aria-hidden>💬</span>
+          <input
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setPending(null);
+            }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder="What do you need? e.g. iPhone 15 under 62k in Koramangala"
+            aria-label="What do you need?"
+            disabled={busy}
+          />
+          <button className="px-btn" onClick={() => submit()} disabled={busy}>
+            {busy ? "Starting…" : "Start mission"}
+          </button>
+        </div>
+
+        {pending ? (
+          <>
+            <span className="px-label">Which market is this?</span>
+            <div className="quest-chips">
+              {pending.options.map((o) => (
+                <button key={o.id} className="px-chip" onClick={() => submit(o.id)}>
+                  {o.emoji} {o.label}
+                </button>
+              ))}
             </div>
-
-            {pending ? (
-              <>
-                <p className="section-label" style={{ marginTop: 18 }}>
-                  Which market is this?
-                </p>
-                <div className="chips">
-                  {pending.options.map((o) => (
-                    <button key={o.id} className="chip" onClick={() => submit(o.id)}>
-                      {o.emoji} {o.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="chips">
-                {EXAMPLES.map((ex) => (
-                  <button key={ex} className="chip" onClick={() => setText(ex)}>
-                    {ex}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {config?.twilio ? (
-              <div className="mode-row">
-                <label className="toggle" data-on={testMode}>
-                  <input
-                    type="checkbox"
-                    checked={testMode}
-                    onChange={(e) => setTestMode(e.target.checked)}
-                  />
-                  <span className="toggle-led" />
-                  Test mode
-                </label>
-                <span className="mode-note">
-                  {testMode ? (
-                    config.test_number ? (
-                      <>
-                        rings <b>{config.test_number}</b> instead of the shops, one call at a time
-                      </>
-                    ) : (
-                      <>no test number set - add TEST_CALL_REDIRECT to .env</>
-                    )
-                  ) : (
-                    <>calls real shops on the list</>
-                  )}
-                </span>
-              </div>
-            ) : null}
-
-            {error ? <div className="error">{error}</div> : null}
-          </div>
-        </section>
-
-        <section className="shelf">
-          <div className="shelf-head">
-            <span className="section-label">
-              {skills.length} markets installed · each one is a file, not a feature
-            </span>
-            <button
-              className="btn-ghost"
-              onClick={async () => {
-                const r = await api.reloadSkills();
-                setSkills((await api.skills()).skills);
-                if (r.errors.length) setError(`${r.errors.length} skill file rejected: ${r.errors[0].message}`);
-              }}
-            >
-              Reload skills
-            </button>
-          </div>
-
-          <div className="skill-grid">
-            {skills.map((s) => (
-              <button key={s.id} className="skill-card" onClick={() => runDemo(s.id)} disabled={busy}>
-                <span className="skill-emoji">{s.emoji}</span>
-                <span className="skill-name">{s.label}</span>
-                <span className="skill-meta">
-                  negotiates {s.hero_metric.replace(/_/g, " ")} · {s.columns.length} tracked facts
-                </span>
+          </>
+        ) : (
+          <div className="quest-chips">
+            {EXAMPLES.map((ex) => (
+              <button key={ex} className="px-chip" onClick={() => setText(ex)}>
+                {ex}
               </button>
             ))}
           </div>
-        </section>
-      </main>
-    </>
+        )}
+
+        {config?.twilio ? (
+          <div className="mode-row">
+            <label className="toggle" data-on={testMode}>
+              <input type="checkbox" checked={testMode} onChange={(e) => setTestMode(e.target.checked)} />
+              <span className="toggle-led" />
+              Test mode
+            </label>
+            <span>
+              {testMode ? (
+                config.test_number ? (
+                  <>
+                    rings <b>{config.test_number}</b> instead of the shops, one call at a time
+                  </>
+                ) : (
+                  <>no test number set - add TEST_CALL_REDIRECT to .env</>
+                )
+              ) : (
+                <>calls real shops on the list</>
+              )}
+            </span>
+          </div>
+        ) : null}
+
+        {error ? <div className="px-panel error-box">{error}</div> : null}
+      </div>
+
+      <section className="level-select">
+        <div className="level-head">
+          <span className="px-label">Level select · {skills.length} markets installed</span>
+          <button
+            className="px-btn ghost"
+            onClick={async () => {
+              const r = await api.reloadSkills();
+              setSkills((await api.skills()).skills);
+              if (r.errors.length) setError(`${r.errors.length} skill file rejected: ${r.errors[0].message}`);
+            }}
+          >
+            Reload skills
+          </button>
+        </div>
+
+        <div className="level-grid">
+          {skills.map((s) => (
+            <button key={s.id} className="px-panel level-card" onClick={() => runDemo(s.id)} disabled={busy}>
+              <span className="emoji">{s.emoji}</span>
+              <span className="name">{s.label}</span>
+              <span className="meta">
+                negotiates {s.hero_metric.replace(/_/g, " ")} · demo plays vs simulated shops
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }
 

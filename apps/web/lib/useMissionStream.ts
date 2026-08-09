@@ -17,7 +17,7 @@ export type Arc = { id: number; fromCpId: string; toCpId: string; label: string 
 export type MissionState = {
   lines: Map<string, Line>;
   order: string[];
-  tape: { id: number; kind: string; text: string; value?: string }[];
+  tape: { id: number; kind: string; text: string; value?: string; at?: number }[];
   arcs: Arc[];
   best: { value: number; cpId: string } | null;
   firstMax: number | null;
@@ -189,6 +189,7 @@ function reduce(prev: MissionState, e: MissionEvent, id: number): MissionState {
             kind: k === prev.heroMetric ? "quote" : "fact",
             text: `${short(line.cp.name)} · ${k.replace(/_/g, " ")}`,
             value: k === prev.heroMetric && typeof v === "number" ? fmt(v) : String(v),
+            at: Date.now(),
           })),
         ].slice(-40);
       }

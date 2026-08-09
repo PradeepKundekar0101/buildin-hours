@@ -1,0 +1,20 @@
+[Unit]
+Description=MolBhav orchestrator
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/home/deploy/molbhav
+# apps/orchestrator/src/env.ts resolves .env relative to the compiled file's
+# own path (../../../.env from dist/), so it finds the workspace-root .env
+# on its own - no EnvironmentFile needed here.
+ExecStart=/usr/bin/node apps/orchestrator/dist/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orchestrator
+
+[Install]
+WantedBy=multi-user.target
