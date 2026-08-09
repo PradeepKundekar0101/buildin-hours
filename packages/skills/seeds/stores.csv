@@ -1,0 +1,8 @@
+name,phone,area,city,kind,store_chain_name,lang_hint,notes
+# Replace every row below with real, publicly listed shop numbers before any live call.
+# The +919000000xx numbers are deliberately invalid so an accidental run cannot dial a stranger.
+Sangeetha Mobiles Koramangala,+919000000001,Koramangala,Bengaluru,store,Sangeetha,kn-IN,
+Poorvika Mobiles Indiranagar,+919000000002,Indiranagar,Bengaluru,store,Poorvika,ta-IN,
+Big C Electronics Jayanagar,+919000000003,Jayanagar,Bengaluru,store,Big C,kn-IN,
+Reliance Digital Forum Mall,+919000000004,Koramangala,Bengaluru,store,Reliance Digital,en-IN,
+Girias HSR Layout,+919000000005,HSR Layout,Bengaluru,store,Girias,kn-IN,

@@ -1,0 +1,77 @@
+{
+  "id": "mfg_rfq",
+  "label": "Factory RFQ",
+  "emoji": "🏭",
+  "counterparty_kinds": ["factory", "vendor"],
+  "discovery": {
+    "places_queries": [
+      "{item_spec} manufacturers in {city}",
+      "injection moulding units in {city}",
+      "contract manufacturers {city}"
+    ],
+    "paste_hint": "Paste vendor numbers from IndiaMART / trade directories",
+    "seed_csv": "seeds/factories.csv"
+  },
+  "mission_fields": [
+    { "key": "item_spec", "label": "What are you sourcing?", "type": "text", "required": true },
+    { "key": "quantity", "label": "Quantity", "type": "int", "required": true },
+    { "key": "target_unit_price", "label": "Target ₹/unit", "type": "int", "required": true },
+    { "key": "city", "label": "City", "type": "text", "required": true },
+    { "key": "need_by", "label": "Need by", "type": "date", "required": false }
+  ],
+  "fact_schema": {
+    "moq": { "type": "int", "ask_hint": "minimum order quantity for this spec?", "table": true },
+    "unit_price": { "type": "money", "ask_hint": "per-unit price at our quantity", "negotiable": true, "table": true, "index": true },
+    "tooling_cost": { "type": "money", "ask_hint": "one-time tooling or die cost?", "table": true },
+    "lead_time_days": { "type": "int", "ask_hint": "lead time in days after PO?", "negotiable": true, "table": true },
+    "sample_policy": { "type": "string", "ask_hint": "can they send a paid or free sample?", "table": true },
+    "payment_terms": { "type": "string", "ask_hint": "advance percentage and credit period?", "negotiable": true, "table": true },
+    "gst_invoice": { "type": "bool", "ask_hint": "GST invoice and e-way bill possible?", "table": false }
+  },
+  "states": { "policy_gate": true, "slot_booking": false, "extra": ["SPEC_CONFIRM"] },
+  "tactics": {
+    "anchor_pct": 0.12,
+    "max_rounds": 3,
+    "concessions": [0.5, 0.3, 0.2],
+    "leverage_min_delta": 2,
+    "negotiable_fields": ["unit_price", "lead_time_days", "payment_terms"],
+    "reservation": "min(spec.target_unit_price, bus.best_external)"
+  },
+  "capabilities": {
+    "leverage": true,
+    "dedup": { "keys": ["company_name"] },
+    "dead_lead": true,
+    "alt_inventory": false
+  },
+  "policies": {
+    "call_cap_s": 200,
+    "extra_rules": [
+      "confirm the exact spec before discussing any price",
+      "never commit to a purchase order on the call - always 'we will send a formal RFQ'"
+    ]
+  },
+  "persona": { "style": "businesslike-direct", "honorifics": ["sir", "ji"] },
+  "tts": { "model": "bulbul:v3", "pace": 1.0 },
+  "voices": {
+    "hi-IN": "rahul",
+    "kn-IN": "gokul",
+    "ta-IN": "kavitha",
+    "te-IN": "pooja",
+    "en-IN": "aditya"
+  },
+  "savings_formula": "(max_unit_price - best_final_unit_price) * spec.quantity",
+  "ui": { "mode": "table", "hero_metric": "unit_price" },
+  "share_copy": "My AI is running an RFQ for {item_spec} across {n} factories",
+  "eval_personas": [
+    "large-plant-moq-heavy",
+    "small-job-shop-flexible",
+    "trader-not-manufacturer",
+    "tooling-cost-upfront",
+    "asks-for-drawings",
+    "credit-terms-strict",
+    "sample-charges",
+    "capacity-full-later-date",
+    "asks-if-bot",
+    "hostile"
+  ]
+}

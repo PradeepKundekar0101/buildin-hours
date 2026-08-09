@@ -1,0 +1,8 @@
+name,phone,area,city,kind,studio_name,person_name,lang_hint,notes
+# Replace every row below with numbers the person has published publicly and is happy to be contacted on.
+# The +919000000xx numbers are deliberately invalid so an accidental run cannot dial a stranger.
+Inkfold Studio,+919000000011,Indiranagar,Bengaluru,vendor,Inkfold,Rhea,en-IN,brand identity
+Chai Type Co,+919000000012,Koramangala,Bengaluru,vendor,Chai Type,Aravind,en-IN,logo + type
+Studio Kadai,+919000000013,Jayanagar,Bengaluru,vendor,Kadai,Nisha,kn-IN,packaging
+Freelance - Manav D,+919000000014,HSR Layout,Bengaluru,freelancer,,Manav,hi-IN,junior rate
+Pixel Bazaar,+919000000015,Whitefield,Bengaluru,vendor,Pixel Bazaar,Tarun,en-IN,agency

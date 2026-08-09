@@ -1,0 +1,76 @@
+{
+  "id": "movers",
+  "label": "Packers & Movers",
+  "emoji": "📦",
+  "counterparty_kinds": ["vendor"],
+  "discovery": {
+    "places_queries": [
+      "packers and movers in {area} {city}",
+      "house shifting services {city}"
+    ],
+    "paste_hint": "Paste mover numbers from Justdial or referrals",
+    "seed_csv": "seeds/movers.csv"
+  },
+  "mission_fields": [
+    { "key": "from_area", "label": "Moving from", "type": "text", "required": true },
+    { "key": "to_area", "label": "Moving to", "type": "text", "required": true },
+    { "key": "home_size", "label": "Home size", "type": "enum", "required": true, "options": ["1BHK", "2BHK", "3BHK", "4BHK+"] },
+    { "key": "move_date", "label": "Move date", "type": "date", "required": true },
+    { "key": "budget_max", "label": "Budget ₹", "type": "int", "required": true },
+    { "key": "city", "label": "City", "type": "text", "required": false, "default": "Bengaluru" }
+  ],
+  "fact_schema": {
+    "available_on_date": { "type": "bool", "ask_hint": "are they free on the move date?", "table": true },
+    "quote": { "type": "money", "ask_hint": "all-inclusive quote for this move", "negotiable": true, "table": true, "index": true },
+    "includes_packing": { "type": "bool", "ask_hint": "is packing material included in that?", "table": true },
+    "labour_count": { "type": "int", "ask_hint": "how many men will come?", "table": true },
+    "insurance": { "type": "string", "ask_hint": "any transit insurance or damage cover?", "table": true },
+    "hidden_charges": { "type": "string", "ask_hint": "any lift, floor, toll or GST charges on top?", "table": true }
+  },
+  "states": { "policy_gate": false, "slot_booking": true, "extra": [] },
+  "tactics": {
+    "anchor_pct": 0.15,
+    "max_rounds": 3,
+    "concessions": [0.5, 0.3, 0.15],
+    "leverage_min_delta": 500,
+    "negotiable_fields": ["quote"],
+    "reservation": "min(spec.budget_max, bus.best_external - 500)"
+  },
+  "capabilities": {
+    "leverage": true,
+    "dedup": { "keys": ["company_name"] },
+    "dead_lead": true,
+    "alt_inventory": false
+  },
+  "policies": {
+    "call_cap_s": 160,
+    "extra_rules": [
+      "always pin down hidden charges before agreeing to any number",
+      "never reveal the customer's budget"
+    ]
+  },
+  "persona": { "style": "warm-brisk", "honorifics": ["bhaiya", "boss", "anna"] },
+  "tts": { "model": "bulbul:v3", "pace": 1.05 },
+  "voices": {
+    "hi-IN": "amit",
+    "kn-IN": "gokul",
+    "ta-IN": "kavitha",
+    "te-IN": "pooja",
+    "en-IN": "shreya"
+  },
+  "savings_formula": "first_quote_max - best_final_quote",
+  "ui": { "mode": "table", "hero_metric": "quote" },
+  "share_copy": "My AI is getting {n} mover quotes for my {home_size} move - live",
+  "eval_personas": [
+    "aggressive-upseller",
+    "date-unavailable",
+    "hidden-charges-late",
+    "cash-only",
+    "asks-for-inventory-list",
+    "quotes-per-km",
+    "busy-callback",
+    "friendly-bargainer",
+    "asks-if-bot",
+    "hostile"
+  ]
+}

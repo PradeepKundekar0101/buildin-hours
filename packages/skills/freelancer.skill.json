@@ -1,0 +1,78 @@
+{
+  "id": "freelancer",
+  "label": "Hire a Freelancer",
+  "emoji": "🎨",
+  "counterparty_kinds": ["freelancer", "vendor"],
+  "discovery": {
+    "places_queries": [
+      "graphic design studio in {area} {city}",
+      "branding agency in {city}",
+      "logo designer {city}"
+    ],
+    "paste_hint": "Paste numbers from Instagram / Behance / referrals",
+    "seed_csv": "seeds/freelancers.csv"
+  },
+  "mission_fields": [
+    { "key": "gig", "label": "What do you need done?", "type": "text", "required": true, "placeholder": "Logo + brand kit" },
+    { "key": "budget_max", "label": "Budget ₹", "type": "int", "required": true },
+    { "key": "deadline", "label": "Needed by", "type": "date", "required": true },
+    { "key": "brief", "label": "One-line brief", "type": "text", "required": false },
+    { "key": "area", "label": "Area", "type": "text", "required": false },
+    { "key": "city", "label": "City", "type": "text", "required": false, "default": "Bengaluru" }
+  ],
+  "fact_schema": {
+    "available": { "type": "bool", "ask_hint": "can they take on a {gig} this week?", "table": true },
+    "quote": { "type": "money", "ask_hint": "all-inclusive price for the brief", "negotiable": true, "table": true, "index": true },
+    "timeline_days": { "type": "int", "ask_hint": "delivery in how many days?", "negotiable": true, "table": true },
+    "revisions": { "type": "int", "ask_hint": "how many revisions are included?", "table": true },
+    "portfolio_sent": { "type": "bool", "ask_hint": "ask them to WhatsApp 2-3 samples to the customer's number", "table": true },
+    "advance_pct": { "type": "int", "ask_hint": "what advance percentage to start?", "table": true },
+    "gst_invoice": { "type": "bool", "ask_hint": "can they give a GST invoice?", "table": false }
+  },
+  "states": { "policy_gate": false, "slot_booking": true, "extra": [] },
+  "tactics": {
+    "anchor_pct": 0.1,
+    "max_rounds": 2,
+    "concessions": [0.5, 0.25],
+    "leverage_min_delta": 500,
+    "negotiable_fields": ["quote", "timeline_days"],
+    "reservation": "min(spec.budget_max, bus.best_external)"
+  },
+  "capabilities": {
+    "leverage": true,
+    "dedup": { "keys": ["person_name", "studio_name"] },
+    "dead_lead": true,
+    "alt_inventory": true
+  },
+  "policies": {
+    "call_cap_s": 170,
+    "extra_rules": [
+      "respect the craft - negotiate scope and timeline before price",
+      "never disparage their rates or compare them unfavourably by name"
+    ]
+  },
+  "persona": { "style": "respectful-professional", "honorifics": ["ji", "sir", "ma'am"] },
+  "tts": { "model": "bulbul:v3", "pace": 1.0 },
+  "voices": {
+    "hi-IN": "aditya",
+    "kn-IN": "mani",
+    "ta-IN": "shruti",
+    "te-IN": "suhani",
+    "en-IN": "ritu"
+  },
+  "savings_formula": "max_quote - best_final_quote",
+  "ui": { "mode": "table", "hero_metric": "quote" },
+  "share_copy": "My AI is interviewing designers for my {gig} - live",
+  "eval_personas": [
+    "premium-studio-firm",
+    "hungry-junior-lowball",
+    "busy-callback",
+    "agency-receptionist-relay",
+    "asks-brief-details",
+    "no-gst-cash-only",
+    "portfolio-eager",
+    "timeline-tight-upcharge",
+    "asks-if-bot",
+    "hostile"
+  ]
+}

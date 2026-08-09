@@ -1,0 +1,74 @@
+{
+  "id": "electronics",
+  "label": "Gadgets & Appliances",
+  "emoji": "🔌",
+  "counterparty_kinds": ["store"],
+  "discovery": {
+    "places_queries": [
+      "mobile phone shops in {area} {city}",
+      "electronics stores in {area} {city}"
+    ],
+    "paste_hint": "Paste store numbers if you have them",
+    "seed_csv": "seeds/stores.csv"
+  },
+  "mission_fields": [
+    { "key": "item", "label": "What are you buying?", "type": "text", "required": true, "placeholder": "iPhone 15 128GB" },
+    { "key": "variant", "label": "Variant / specs", "type": "text", "required": false, "placeholder": "Black, 128GB" },
+    { "key": "budget_max", "label": "Budget ₹", "type": "int", "required": true },
+    { "key": "area", "label": "Area", "type": "text", "required": true, "placeholder": "Koramangala" },
+    { "key": "city", "label": "City", "type": "text", "required": false, "default": "Bengaluru" }
+  ],
+  "fact_schema": {
+    "in_stock": { "type": "bool", "ask_hint": "is the exact variant available today?", "table": true },
+    "price": { "type": "money", "ask_hint": "best price for cash/UPI today", "negotiable": true, "table": true, "index": true },
+    "conditions": { "type": "string", "ask_hint": "cash only? exchange needed? bill included?", "table": true },
+    "validity": { "type": "string", "ask_hint": "how long can they hold this price today?", "table": true },
+    "freebies": { "type": "string", "ask_hint": "cover or screen-guard included?", "table": false }
+  },
+  "states": { "policy_gate": false, "slot_booking": false, "extra": ["BUNDLE_ASK"] },
+  "tactics": {
+    "anchor_pct": 0.13,
+    "max_rounds": 3,
+    "concessions": [0.5, 0.3, 0.15],
+    "leverage_min_delta": 300,
+    "negotiable_fields": ["price"],
+    "reservation": "min(spec.budget_max, bus.best_external - 200)"
+  },
+  "capabilities": {
+    "leverage": true,
+    "dedup": { "keys": ["store_chain_name"] },
+    "dead_lead": true,
+    "alt_inventory": false
+  },
+  "policies": {
+    "call_cap_s": 150,
+    "extra_rules": [
+      "never reveal the customer's budget",
+      "if they have no stock, ask once whether a nearby branch has it, then wrap"
+    ]
+  },
+  "persona": { "style": "warm-brisk", "honorifics": ["boss", "anna", "bhaiya"] },
+  "tts": { "model": "bulbul:v3", "pace": 1.05 },
+  "voices": {
+    "hi-IN": "amit",
+    "kn-IN": "gokul",
+    "ta-IN": "kavitha",
+    "te-IN": "pooja",
+    "en-IN": "shreya"
+  },
+  "savings_formula": "first_quote_max - best_final_price",
+  "ui": { "mode": "ticker", "hero_metric": "price" },
+  "share_copy": "My AI is haggling for a {item} in 3 languages - watch live",
+  "eval_personas": [
+    "friendly-bargainer",
+    "busy-abrupt",
+    "no-stock-upsell",
+    "hostile-hangup",
+    "high-firm",
+    "transfers-owner",
+    "asks-if-bot",
+    "kannada-only",
+    "hinglish-fast",
+    "exchange-conditional"
+  ]
+}

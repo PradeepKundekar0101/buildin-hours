@@ -1,0 +1,19 @@
+{
+  "name": "molbhav",
+  "private": true,
+  "version": "3.0.0",
+  "description": "The negotiation engine for every bazaar. One engine, every market is a skill file.",
+  "packageManager": "pnpm@10.31.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter orchestrator dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter \"./apps/*\" build",
+    "typecheck": "pnpm -r typecheck",
+    "eval": "pnpm --filter orchestrator eval",
+    "skills:check": "pnpm --filter orchestrator skills:check"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
